@@ -430,22 +430,7 @@ def _tensor_matrix_multiply(
     b_shape: Shape,
     b_strides: Strides,
 ) -> None:
-    """CUDA tensor matrix multiply function.
-
-    Requirements:
-
-    * All data must be first moved to shared memory.
-    * Only read each cell in `a` and `b` once.
-    * Only write to global memory once per kernel.
-
-    Should work for any tensor shapes that broadcast as long as ::
-
-    ```python
-    assert a_shape[-1] == b_shape[-2]
-    ```
-    Returns:
-        None : Fills in `out`
-    """
+    """CUDA tensor matrix multiply function."""
     a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
     b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
     # Batch dimension - fixed
@@ -463,15 +448,12 @@ def _tensor_matrix_multiply(
     pi = cuda.threadIdx.x
     pj = cuda.threadIdx.y
 
-    # Code Plan:
-    # 1) Move across shared dimension by block dim.
-    #    a) Copy into shared memory for a matrix.
-    #    b) Copy into shared memory for b matrix
-    #    c) Compute the dot produce for position c[i, j]
-    # TODO: Implement for Task 3.4.
+    # Initialize the accumulator for the dot product
     acc = 0.0
 
+    # Iterate over tiles of the input matrices
     for tile in range(0, a_shape[-1], BLOCK_DIM):
+        # Load a tile of matrix `a` into shared memory
         if i < a_shape[-2] and (tile + pj) < a_shape[-1]:
             a_index = (
                 batch * a_batch_stride + i * a_strides[1] + (tile + pj) * a_strides[2]
@@ -479,6 +461,8 @@ def _tensor_matrix_multiply(
             a_shared[pi, pj] = a_storage[a_index]
         else:
             a_shared[pi, pj] = 0.0
+
+        # Load a tile of matrix `b` into shared memory
         if j < b_shape[-1] and (tile + pi) < b_shape[-2]:
             b_index = (
                 batch * b_batch_stride + (tile + pi) * b_strides[1] + j * b_strides[2]
@@ -486,11 +470,17 @@ def _tensor_matrix_multiply(
             b_shared[pi, pj] = b_storage[b_index]
         else:
             b_shared[pi, pj] = 0.0
+
+        # Synchronize threads to ensure all data is loaded
         cuda.syncthreads()
+
+        # Perform the dot product for the current tile
         if i < out_shape[-2] and j < out_shape[-1]:
             for k in range(BLOCK_DIM):
                 acc += a_shared[pi, k] * b_shared[k, pj]
             cuda.syncthreads()
+
+    # Write the result to the output matrix
     if i < out_shape[-2] and j < out_shape[-1]:
         out_index = batch * out_strides[0] + i * out_strides[1] + j * out_strides[2]
         out[out_index] = acc
