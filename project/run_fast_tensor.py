@@ -7,10 +7,7 @@ import minitorch
 
 datasets = minitorch.datasets
 FastTensorBackend = minitorch.TensorBackend(minitorch.FastOps)
-if numba.cuda.is_available():
-    GPUBackend = minitorch.TensorBackend(minitorch.CudaOps)
-else:
-    GPUBackend = None
+GPUBackend = minitorch.TensorBackend(minitorch.CudaOps) if numba.cuda.is_available() else FastTensorBackend
 
 
 def default_log_fn(epoch, total_loss, correct, losses, time):
