@@ -30,6 +30,7 @@ Fn = TypeVar("Fn")
 
 
 def njit(fn: Fn, **kwargs: Any) -> Fn:
+    """JIT compile a function."""
     return _njit(inline="always", **kwargs)(fn)  # type: ignore
 
 
