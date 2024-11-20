@@ -1,20 +1,24 @@
-import random
-from collections import defaultdict
-import minitorch
 import time
-import sys
 import numpy as np
+from minitorch.tensor_functions import rand
+from minitorch.tensor_ops import TensorBackend
+from minitorch.fast_ops import FastOps
+from minitorch.cuda_ops import CudaOps
 
-FastTensorBackend = minitorch.TensorBackend(minitorch.FastOps)
-GPUBackend = minitorch.TensorBackend(minitorch.CudaOps)
+FastTensorBackend = TensorBackend(FastOps)
+GPUBackend = TensorBackend(CudaOps)
 
 
-def run_matmul(backend, size=16) -> None:
+def run_matmul(backend: TensorBackend, size: int = 16) -> None:
+    """Run a matrix multiplication benchmark."""
     batch_size = 2
-
-    x = minitorch.rand((batch_size, size, size), backend=backend)
-    y = minitorch.rand((batch_size, size, size), backend=backend)
-    z = x @ y
+    try:
+        x = rand((batch_size, size, size), backend=backend)
+        y = rand((batch_size, size, size), backend=backend)
+        z = x @ y
+        _ = z.sum()
+    except RuntimeError as e:
+        print(f"An error occurred during matrix multiplication: {e}")
 
 
 if __name__ == "__main__":
@@ -27,7 +31,6 @@ if __name__ == "__main__":
     for size in [64, 128, 256, 512, 1024]:
         print(f"Running size {size}")
         times[size] = {}
-        simple_times = []
         fast_times = []
         gpu_times = []
         for _ in range(ntrials):
