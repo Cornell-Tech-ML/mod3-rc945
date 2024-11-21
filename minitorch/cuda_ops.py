@@ -308,6 +308,7 @@ def tensor_reduce(
         out_pos = cuda.blockIdx.x
         pos = cuda.threadIdx.x
 
+        # TODO: Implement for Task 3.3.
         i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
         if i < out_size:
             to_index(i, out_shape, out_index)
@@ -339,7 +340,7 @@ def tensor_reduce(
             o = index_to_position(out_index, out_strides)
             out[o] = cache[0]
 
-    return jit(_reduce)
+    return jit(_reduce)  # type: ignore
 
 
 def _mm_practice(out: Storage, a: Storage, b: Storage, size: int) -> None:
@@ -486,104 +487,3 @@ def _tensor_matrix_multiply(
 
 
 tensor_matrix_multiply = jit(_tensor_matrix_multiply)
-
-
-@cuda.jit
-def _tensor_matrix_multiply_backward(
-    grad_output_storage: Storage,
-    grad_output_shape: Shape,
-    grad_output_strides: Strides,
-    grad_a_storage: Storage,
-    grad_a_shape: Shape,
-    grad_a_strides: Strides,
-    grad_b_storage: Storage,
-    grad_b_shape: Shape,
-    grad_b_strides: Strides,
-    a_storage: Storage,
-    a_shape: Shape,
-    a_strides: Strides,
-    b_storage: Storage,
-    b_shape: Shape,
-    b_strides: Strides,
-) -> None:
-    """CUDA kernel for backward pass of matrix multiplication."""
-    batch, row, col = cuda.grid(3)
-
-    if (
-        batch >= grad_output_shape[0]
-        or row >= grad_output_shape[1]
-        or col >= grad_output_shape[2]
-    ):
-        return
-
-    # Calculate gradients for a
-    acc_a = 0.0
-    for k in range(b_shape[1]):
-        b_val = b_storage[batch * b_strides[0] + k * b_strides[1] + col * b_strides[2]]
-        grad_out = grad_output_storage[
-            batch * grad_output_strides[0]
-            + row * grad_output_strides[1]
-            + k * grad_output_strides[2]
-        ]
-        acc_a += grad_out * b_val
-    grad_a_storage[
-        batch * grad_a_strides[0] + row * grad_a_strides[1] + col * grad_a_strides[2]
-    ] = acc_a
-
-    # Calculate gradients for b
-    acc_b = 0.0
-    for k in range(a_shape[1]):
-        a_val = a_storage[batch * a_strides[0] + row * a_strides[1] + k * a_strides[2]]
-        grad_out = grad_output_storage[
-            batch * grad_output_strides[0]
-            + k * grad_output_strides[1]
-            + col * grad_output_strides[2]
-        ]
-        acc_b += grad_out * a_val
-    grad_b_storage[
-        batch * grad_b_strides[0] + row * grad_b_strides[1] + col * grad_b_strides[2]
-    ] = acc_b
-
-
-tensor_matrix_multiply_backward = cuda.jit(_tensor_matrix_multiply_backward)
-
-
-@cuda.jit
-def _broadcast_backward(
-    out_storage: Storage,
-    out_shape: Shape,
-    out_strides: Strides,
-    grad_storage: Storage,
-    grad_shape: Shape,
-    grad_strides: Strides,
-    reduce_dims: Shape,
-) -> None:
-    """CUDA kernel for backward pass of broadcast operations."""
-    idx = cuda.grid(1)
-
-    if idx >= len(out_storage):
-        return
-
-    out_index = cuda.local.array(MAX_DIMS, numba.int32)
-    to_index(idx, out_shape, out_index)
-
-    grad_index = cuda.local.array(MAX_DIMS, numba.int32)
-    broadcast_index(out_index, out_shape, grad_shape, grad_index)
-
-    grad_pos = index_to_position(grad_index, grad_strides)
-    out_storage[idx] = grad_storage[grad_pos]
-
-
-broadcast_backward = cuda.jit(_broadcast_backward)
-
-
-def get_grid_dim(size: int, block_dim: int) -> int:
-    """Calculate grid dimension ensuring full coverage of the input size."""
-    return (size + block_dim - 1) // block_dim
-
-
-def launch_kernel(kernel: FakeCUDAKernel, size: int, *args: Any) -> None:
-    """Launch CUDA kernel with optimal thread configuration."""
-    threads_per_block = 256  # This can be tuned based on your GPU
-    blocks_per_grid = get_grid_dim(size, threads_per_block)
-    kernel[blocks_per_grid, threads_per_block](*args)
