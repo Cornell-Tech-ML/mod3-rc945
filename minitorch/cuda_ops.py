@@ -88,24 +88,23 @@ class CudaOps(TensorOps):
     @staticmethod
     def reduce(
         fn: Callable[[float, float], float], start: float = 0.0
-    ) -> Callable[[Tensor, int], Tensor]:
-        """See `tensor_ops.py`"""
-        cufn: Callable[[float, float], float] = device_jit(fn)
-        f = tensor_reduce(cufn)
-
-        def ret(a: Tensor, dim: int) -> Tensor:
-            out_shape = list(a.shape)
-            out_shape[dim] = (a.shape[dim] - 1) // 1024 + 1
-            out_a = a.zeros(tuple(out_shape))
-
-            threadsperblock = 1024
-            blockspergrid = out_a.size
-            f[blockspergrid, threadsperblock](  # type: ignore
-                *out_a.tuple(), out_a.size, *a.tuple(), dim, start
+    ) -> Callable:
+        """Return a reduce kernel for reduce_fn."""
+        f = tensor_reduce(cuda.jit(device=True)(fn))
+        
+        def ret(out: Tensor, out_shape: Shape, out_strides: Strides,
+                a_storage: Storage, a_shape: Shape, a_strides: Strides,
+                reduce_dim: int) -> None:
+            BLOCK_DIM = 32
+            size = len(out)
+            blocks = (size + BLOCK_DIM - 1) // BLOCK_DIM
+            
+            f[blocks, BLOCK_DIM](
+                out, out_shape, out_strides,
+                a_storage, a_shape, a_strides,
+                reduce_dim
             )
-
-            return out_a
-
+        
         return ret
 
     @staticmethod
@@ -288,33 +287,46 @@ def tensor_reduce(fn: Callable[[float, float], float]) -> Callable:
         a_strides: Strides,
         reduce_dim: int,
     ) -> None:
-        # Calculate the total size of the output
+        BLOCK_DIM = 32
+        
+        # Get thread indices
+        tid = cuda.threadIdx.x
+        bid = cuda.blockIdx.x
+        
+        # Calculate output size and create shared memory
         size = len(out)
+        shared = cuda.shared.array(BLOCK_DIM, numba.float64)
+        
+        # Initialize indices
         out_index = cuda.local.array(MAX_DIMS, numba.int32)
         a_index = cuda.local.array(MAX_DIMS, numba.int32)
         
-        # Get the thread and block indices
-        idx = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+        # Calculate global thread index
+        idx = bid * BLOCK_DIM + tid
         
         if idx < size:
-            # Convert the linear index to tensor index
+            # Convert linear index to tensor index
             to_index(idx, out_shape, out_index)
-            
-            # Initialize output
             out_pos = index_to_position(out_index, out_strides)
-            out[out_pos] = a_storage[index_to_position(out_index, a_strides)]
             
             # Copy indices for input
             for i in range(len(out_shape)):
                 a_index[i] = out_index[i]
             
-            # Iterate over the reduction dimension
+            # Initialize output with first value
+            a_index[reduce_dim] = 0
+            shared[tid] = a_storage[index_to_position(a_index, a_strides)]
+            
+            # Reduce within thread
             for j in range(1, a_shape[reduce_dim]):
                 a_index[reduce_dim] = j
-                pos = index_to_position(a_index, a_strides)
-                out[out_pos] = fn(out[out_pos], a_storage[pos])
+                shared[tid] = fn(shared[tid], 
+                               a_storage[index_to_position(a_index, a_strides)])
+            
+            # Write result to output
+            out[out_pos] = shared[tid]
 
-    return cuda.jit()(_reduce)
+    return cuda.jit(device=True)(_reduce)
 
 
 def _mm_practice(out: Storage, a: Storage, b: Storage, size: int) -> None:
