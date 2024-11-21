@@ -61,7 +61,6 @@ markers = [
     "task4_4",
 ]
 [tool.ruff]
-
 exclude = [
     ".git",
     "__pycache__",
@@ -74,6 +73,7 @@ exclude = [
     "**/docs/**/*",
 ]
 
+[tool.ruff.lint]
 ignore = [
     "ANN101",
     "ANN401",
@@ -147,5 +147,5 @@ fixable = [
 ]
 unfixable = []
 
-[tool.ruff.extend-per-file-ignores]
+[tool.ruff.lint.extend-per-file-ignores]
 "tests/**/*.py" = ["D"]
