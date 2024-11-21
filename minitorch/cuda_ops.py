@@ -279,17 +279,7 @@ def sum_practice(a: Tensor) -> TensorData:
 def tensor_reduce(
     fn: Callable[[float, float], float],
 ) -> Callable[[Storage, Shape, Strides, Storage, Shape, Strides, int], None]:
-    """CUDA higher-order tensor reduce function.
-
-    Args:
-    ----
-        fn: reduction function maps two floats to float.
-
-    Returns:
-    -------
-        Tensor reduce function.
-
-    """
+    """CUDA higher-order tensor reduce function."""
 
     def _reduce(
         out: Storage,
