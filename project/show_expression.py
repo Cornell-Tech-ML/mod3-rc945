@@ -1,5 +1,4 @@
-"""
-Be sure you have the extra requirements installed.
+"""Be sure you have the extra requirements installed.
 
 >>> pip install -r requirements.extra.txt
 """

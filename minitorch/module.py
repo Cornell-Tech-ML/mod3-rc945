@@ -48,7 +48,6 @@ class Module:
     def named_parameters(self) -> Sequence[Tuple[str, Parameter]]:
         """Collect all the parameters of this module and its descendents.
 
-
         Returns
         -------
             The name and `Parameter` of each ancestor parameter.
