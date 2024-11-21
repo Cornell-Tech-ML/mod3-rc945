@@ -90,21 +90,21 @@ class CudaOps(TensorOps):
         fn: Callable[[float, float], float], start: float = 0.0
     ) -> Callable:
         """Return a reduce kernel for reduce_fn."""
-        f = tensor_reduce(cuda.jit(device=True)(fn))
-        
-        def ret(out: Tensor, out_shape: Shape, out_strides: Strides,
+        f = tensor_reduce(fn)
+
+        def ret(out: Storage, out_shape: Shape, out_strides: Strides,
                 a_storage: Storage, a_shape: Shape, a_strides: Strides,
                 reduce_dim: int) -> None:
             BLOCK_DIM = 32
             size = len(out)
             blocks = (size + BLOCK_DIM - 1) // BLOCK_DIM
-            
+
             f[blocks, BLOCK_DIM](
                 out, out_shape, out_strides,
                 a_storage, a_shape, a_strides,
                 reduce_dim
             )
-        
+
         return ret
 
     @staticmethod
