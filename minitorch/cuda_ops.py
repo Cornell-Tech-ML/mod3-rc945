@@ -294,23 +294,43 @@ def tensor_reduce(fn: Callable[[float, float], float]) -> Callable:
         reduce_dim: int,
         reduce_value: float,
     ) -> None:
+        # Calculate indices
+        tid = cuda.threadIdx.x
+        bid = cuda.blockIdx.x
+        global_id = bid * cuda.blockDim.x + tid
+
+        # Shared memory for partial sums
+        shared = cuda.shared.array(THREADS_PER_BLOCK, numba.float64)
         out_index = cuda.local.array(MAX_DIMS, numba.int32)
         in_index = cuda.local.array(MAX_DIMS, numba.int32)
 
-        tid = cuda.threadIdx.x
-        bid = cuda.blockIdx.x
-
-        if bid * cuda.blockDim.x + tid < out_size:
-            to_index(bid * cuda.blockDim.x + tid, out_shape, out_index)
+        if global_id < out_size:
+            to_index(global_id, out_shape, out_index)
             temp = reduce_value
-            # Scan all values in the reduction dimension
+
+            # Compute reduction for this index
             for j in range(in_shape[reduce_dim]):
                 in_index[:] = out_index[:]
                 in_index[reduce_dim] = j
-                pos = index_to_position(in_index, in_strides)
-                temp = fn(temp, in_storage[pos])
-            out_pos = index_to_position(out_index, out_strides)
-            out_storage[out_pos] = temp
+                in_pos = index_to_position(in_index, in_strides)
+                temp = fn(temp, in_storage[in_pos])
+
+            # Store in shared memory
+            shared[tid] = temp
+            cuda.syncthreads()
+
+            # Parallel reduction in shared memory
+            stride = THREADS_PER_BLOCK // 2
+            while stride > 0:
+                if tid < stride:
+                    shared[tid] = fn(shared[tid], shared[tid + stride])
+                cuda.syncthreads()
+                stride //= 2
+
+            # Write final result
+            if tid == 0:
+                out_pos = index_to_position(out_index, out_strides)
+                out_storage[out_pos] = shared[0]
 
     return _reduce
 
